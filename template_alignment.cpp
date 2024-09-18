@@ -15,7 +15,6 @@ float hole_orientation_x = -0.0;
 float hole_orientation_y = -0.0;
 float hole_orientation_z = -0.0;
 float hole_orientation_w = 1.0;
-
 float tar_cam_position_x = 0.410;
 float tar_cam_position_y = -0.2565;
 float tar_cam_position_z = 0.321;
