@@ -1,5 +1,37 @@
 #include "template_alignment.h"
 
+float cam_position_x = 0.410;
+float cam_position_y = -0.2565;
+float cam_position_z = 0.321;
+float cam_orientation_x = -0.660;
+float cam_orientation_y = -0.652;
+float cam_orientation_z = 0.245;
+float cam_orientation_w = 0.282;
+
+float hole_position_x = 0.619;
+float hole_position_y = -0.254;
+float hole_position_z = 0.1996;
+float hole_orientation_x = -0.0;
+float hole_orientation_y = -0.0;
+float hole_orientation_z = -0.0;
+float hole_orientation_w = 1.0;
+
+// float tar_cam_position_x = 0.505;
+// float tar_cam_position_y = -0.353;
+// float tar_cam_position_z = 0.312;
+// float tar_cam_orientation_x = -0.612;
+// float tar_cam_orientation_y = 0.615;
+// float tar_cam_orientation_z = 0.347;
+// float tar_cam_orientation_w = -0.356;
+
+float tar_cam_position_x = 0.410;
+float tar_cam_position_y = -0.2565;
+float tar_cam_position_z = 0.321;
+float tar_cam_orientation_x = -0.660;
+float tar_cam_orientation_y = -0.652;
+float tar_cam_orientation_z = 0.245;
+float tar_cam_orientation_w = 0.282;
+
 void
 TemplateAlign(char* target_pcd_path)
 {
@@ -78,6 +110,60 @@ TemplateAlign(char* target_pcd_path)
   Eigen::Vector3f translation = icp.getFinalTransformation().block<3,1>(0, 3);
 
   printf ("\n");
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
+  printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));
+  printf ("\n");
+  printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
+
+  Eigen::Quaternionf trans_camera2world(cam_orientation_w, cam_orientation_x, cam_orientation_y, cam_orientation_z);
+  Eigen::Vector4f pos_vec(cam_position_x, cam_position_y, cam_position_z, 1.0);
+  Eigen::Matrix4f trans_camera2world_mat = Eigen::Matrix4f::Zero();
+  trans_camera2world_mat.block<3, 3>(0, 0) = trans_camera2world.matrix();
+  trans_camera2world_mat.block<4, 1>(0, 3) = pos_vec;
+
+  Eigen::Quaternionf trans_hole2world(hole_orientation_w, hole_orientation_x, hole_orientation_y, hole_orientation_z);
+  Eigen::Vector4f hole_pos_vec(hole_position_x, hole_position_y, hole_position_z, 1.0);
+  Eigen::Matrix4f trans_hole2world_mat = Eigen::Matrix4f::Zero();
+  trans_hole2world_mat.block<3, 3>(0, 0) = trans_hole2world.matrix();
+  trans_hole2world_mat.block<4, 1>(0, 3) = hole_pos_vec;
+
+  Eigen::Matrix4f hole2cam = trans_camera2world_mat.inverse() * trans_hole2world_mat;
+
+  Eigen::Matrix4f hole2cam_target = icp.getFinalTransformation() * hole2cam;
+
+  //////////////////////////
+  StandardTrans standardtrans_;
+  Eigen::Matrix4f trans_camera2target = icp.getFinalTransformation();
+  Eigen::Matrix4f trans_hole2target = trans_camera2target * standardtrans_.trans_hole2camera;
+  Eigen::Matrix4f trans_target2base = Eigen::Matrix4f::Identity(); // get from robot
+  Eigen::Matrix4f trans_hole2base = trans_target2base * trans_hole2target;
+  ///////////////////////////
+
+  rotation = trans_hole2base.block<3,3>(0, 0);
+  translation = trans_hole2base.block<3,1>(0, 3);
+
+  printf ("\n");
+  printf ("hole to base from estimation: \n");
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
+  printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));
+  printf ("\n");
+  printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
+
+  Eigen::Quaternionf tar_trans_camera2world(tar_cam_orientation_w, tar_cam_orientation_x, tar_cam_orientation_y, tar_cam_orientation_z);
+  Eigen::Vector4f tar_pos_vec(tar_cam_position_x, tar_cam_position_y, tar_cam_position_z, 1.0);
+  Eigen::Matrix4f tar_trans_camera2world_mat = Eigen::Matrix4f::Zero();
+  tar_trans_camera2world_mat.block<3, 3>(0, 0) = tar_trans_camera2world.matrix();
+  tar_trans_camera2world_mat.block<4, 1>(0, 3) = tar_pos_vec;
+
+  Eigen::Matrix4f tar_hole2cam = tar_trans_camera2world_mat.inverse() * trans_hole2world_mat;
+
+  rotation = tar_hole2cam.block<3,3>(0, 0);
+  translation = tar_hole2cam.block<3,1>(0, 3);
+
+  printf ("\n");
+  printf ("hole to camera from optitrack:\n");
   printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
   printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
   printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));

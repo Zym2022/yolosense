@@ -55,6 +55,53 @@ extern "C"
   void set_py2cpp(Py2Cpp* vars) { py2cpp_ = *vars; };
 }
 
+// base tranforms before calculation
+class StandardTrans
+{
+  public:
+    Eigen::Matrix4f trans_camera2end;
+    Eigen::Matrix4f trans_world2base;
+    Eigen::Matrix4f trans_hole2world;
+    Eigen::Matrix4f trans_end2base;
+
+    Eigen::Matrix4f trans_hole2base;
+    Eigen::Matrix4f trans_camera2base;
+    Eigen::Matrix4f trans_hole2camera;
+
+  StandardTrans(){
+    trans_world2base << 1.0, 0.0, 0.0, -0.13133,
+                        0.0, 1.0, 0.0, -0.201645,
+                        0.0, 0.0, 1.0, 0.013512,
+                        0.0, 0.0, 0.0, 1.0;
+    
+    trans_camera2end << 0.003372588585447311, 0.999993882232867, -0.0009279779481199456, -0.1139769854729428,
+                        -0.9999928642232963, 0.003371002717380445, -0.001705239914974192, 0.03146280771337295,
+                        -0.001702101266528705, 0.0009337223989492128, 0.9999981155051044, 0.07811252527739843,
+                        0, 0, 0, 1;
+                        
+    trans_end2base = Eigen::Matrix4f::Identity();
+
+    float hole_position_x = 0.619;
+    float hole_position_y = -0.254;
+    float hole_position_z = 0.1996;
+    float hole_orientation_x = -0.0;
+    float hole_orientation_y = -0.0;
+    float hole_orientation_z = -0.0;
+    float hole_orientation_w = 1.0;
+
+    trans_hole2world = Eigen::Matrix4f::Identity();
+    Eigen::Quaternionf quat_hole2world(hole_orientation_w, hole_orientation_x, hole_orientation_y, hole_orientation_z);
+    Eigen::Vector4f hole_pos_vec(hole_position_x, hole_position_y, hole_position_z, 1.0);
+    trans_hole2world.block<3, 3>(0, 0) = quat_hole2world.matrix();
+    trans_hole2world.block<4, 1>(0, 3) = hole_pos_vec;
+
+    trans_hole2base = trans_world2base * trans_hole2world;
+    trans_camera2base = trans_end2base * trans_camera2end;
+    trans_hole2camera = trans_camera2base.inverse() * trans_hole2base;
+  }
+
+  ~StandardTrans(){}
+};
 
 class FeatureCloud
 {
