@@ -61,6 +61,16 @@ TemplateAlign(char* target_pcd_path)
   // Print the alignment fitness score (values less than 0.00002 are good)
   printf ("Best fitness score: %f\n", best_alignment.fitness_score);
 
+  pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
+  ndt.setTransformationEpsilon(0.01);
+  ndt.setResolution(1.0);
+
+  ndt.setInputSource(best_template.getPointCloud());
+  ndt.setInputTarget(target_cloud.getPointCloud());
+  pcl::PointCloud<pcl::PointXYZ>::Ptr unused_result_0(new pcl::PointCloud<pcl::PointXYZ>());
+
+  ndt.align(*unused_result_0, best_alignment.final_transformation);
+
   pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
   icp.setMaxCorrespondenceDistance(100);
   icp.setMaximumIterations(100);
@@ -71,7 +81,7 @@ TemplateAlign(char* target_pcd_path)
   icp.setInputSource(best_template.getPointCloud());
   icp.setInputTarget(target_cloud.getPointCloud());
   pcl::PointCloud<pcl::PointXYZ>::Ptr unused_result(new pcl::PointCloud<pcl::PointXYZ>());
-  icp.align(*unused_result, best_alignment.final_transformation);
+  icp.align(*unused_result, ndt.getFinalTransformation());
 
   // Print the rotation matrix and translation vector
   Eigen::Matrix3f rotation = icp.getFinalTransformation().block<3,3>(0, 0);
@@ -85,15 +95,38 @@ TemplateAlign(char* target_pcd_path)
   printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
 
   //////////////////////////
-  StandardTrans standardtrans_;
-  Eigen::Matrix4f trans_camera2target = icp.getFinalTransformation();
-  Eigen::Matrix4f trans_hole2target = trans_camera2target * standardtrans_.trans_hole2camera;
-  Eigen::Matrix4f trans_target2base = Eigen::Matrix4f::Identity(); // get from robot
-  Eigen::Matrix4f trans_hole2base = trans_target2base * trans_hole2target;
+  // StandardTrans standardtrans_;
+  // Eigen::Matrix4f trans_camera2target = icp.getFinalTransformation();
+  // Eigen::Matrix4f trans_hole2target = trans_camera2target * standardtrans_.trans_hole2camera;
+  // Eigen::Matrix4f trans_end2base = Eigen::Matrix4f::Identity(); // get from robot
+  // trans_end2base << -0.4999368190765381, -1.5891189832473174e-05, 0.8660618662834167, 0.7147712707519531,
+  //                   -1.0617844964144751e-05, 1.0, 1.221960974362446e-05, -0.1500995010137558,
+  //                   -0.8660618662834167, -3.086678134422982e-06, -0.4999368190765381, 0.16625721752643585,
+  //                   0.0, 0.0, 0.0, 1.0;    
+  // Eigen::Matrix4f trans_target2base = trans_end2base * standardtrans_.trans_camera2end;
+  // Eigen::Matrix4f trans_hole2base = trans_target2base * trans_hole2target;
   ///////////////////////////
 
-  rotation = trans_hole2base.block<3,3>(0, 0);
-  translation = trans_hole2base.block<3,1>(0, 3);
+  ////////////////
+  StandardTrans standardtrans_;
+  Eigen::Matrix4f trans_end2base;
+  trans_end2base << py2cpp_.end00, py2cpp_.end01, py2cpp_.end02, py2cpp_.end03, 
+                    py2cpp_.end10, py2cpp_.end11, py2cpp_.end12, py2cpp_.end13,
+                    py2cpp_.end20, py2cpp_.end21, py2cpp_.end22, py2cpp_.end23,
+                    py2cpp_.end30, py2cpp_.end31, py2cpp_.end32, py2cpp_.end33;
+  
+  // trans_end2base << -0.4999368190765381, -1.5891189832473174e-05, 0.8660618662834167, 0.7147712707519531,
+  //                   -1.0617844964144751e-05, 1.0, 1.221960974362446e-05, -0.1500995010137558,
+  //                   -0.8660618662834167, -3.086678134422982e-06, -0.4999368190765381, 0.16625721752643585,
+  //                   0.0, 0.0, 0.0, 1.0;    
+
+  std::cout << trans_end2base << std::endl;
+  Eigen::Matrix4f trans_target2camera = icp.getFinalTransformation() * standardtrans_.trans_hole2camera;
+  Eigen::Matrix4f trans_target2base = trans_end2base * standardtrans_.trans_camera2end * trans_target2camera;
+  ////////////////
+
+  rotation = trans_target2base.block<3,3>(0, 0);
+  translation = trans_target2base.block<3,1>(0, 3);
 
   printf ("\n");
   printf ("hole to base from estimation: \n");
@@ -103,11 +136,17 @@ TemplateAlign(char* target_pcd_path)
   printf ("\n");
   printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
 
-  rotation = standardtrans_.trans_hole2world.block<3,3>(0, 0);
-  translation = standardtrans_.trans_hole2world.block<3,1>(0, 3);
+
+  Eigen::AngleAxisf rotationV(M_PI*3/4, Eigen::Vector3f(0, 1, 0));
+  Eigen::Matrix4f rotationMatrix = Eigen::Matrix4f::Identity();
+  rotationMatrix.block<3, 3>(0, 0) = rotationV.toRotationMatrix();
+  Eigen::Matrix4f Result = trans_target2base * rotationMatrix;
+
+  rotation = Result.block<3,3>(0, 0);
+  translation = Result.block<3,1>(0, 3);
 
   printf ("\n");
-  printf ("hole to camera from optitrack:\n");
+  printf ("transformed hole to base from estimation: \n");
   printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
   printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
   printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));
@@ -127,6 +166,33 @@ TemplateAlign(char* target_pcd_path)
   var2py_.translation_x = translation (0);
   var2py_.translation_y = translation (1);
   var2py_.translation_z = translation (2);
+
+  float hole_position_x_val = 0.92908;
+  float hole_position_y_val = -0.31034;
+  float hole_position_z_val = 0.11495;
+  float hole_orientation_x_val = 0.0;
+  float hole_orientation_y_val = 0.0;
+  float hole_orientation_z_val = 0.0;
+  float hole_orientation_w_val = 1.0;
+
+  Eigen::Matrix4f trans_hole2world_val = Eigen::Matrix4f::Identity();
+  Eigen::Quaternionf quat_hole2world_val(hole_orientation_w_val, hole_orientation_x_val, hole_orientation_y_val, hole_orientation_z_val);
+  Eigen::Vector4f hole_pos_vec_val(hole_position_x_val, hole_position_y_val, hole_position_z_val, 1.0);
+  trans_hole2world_val.block<3, 3>(0, 0) = quat_hole2world_val.matrix();
+  trans_hole2world_val.block<4, 1>(0, 3) = hole_pos_vec_val;
+  Eigen::Matrix4f trans_hole2base_val = standardtrans_.trans_base2world.inverse() * trans_hole2world_val;
+  trans_hole2base_val = trans_hole2base_val * rotationMatrix;
+
+  rotation = trans_hole2base_val.block<3,3>(0, 0);
+  translation = trans_hole2base_val.block<3,1>(0, 3);
+
+  printf ("\n");
+  printf ("tranformed hole to base from optitrack:\n");
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
+  printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
+  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));
+  printf ("\n");
+  printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
 
   // Save the aligned template for visualization
   pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud(new pcl::PointCloud<pcl::PointXYZ>);

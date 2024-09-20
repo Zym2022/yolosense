@@ -17,6 +17,7 @@
 #include <pcl/registration/ia_ransac.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/registration/icp.h>
+#include <pcl/registration/ndt.h>
 
 #include <tbb/parallel_for.h>
 
@@ -41,10 +42,14 @@ struct Var2Py {
 
 struct Py2Cpp {
     char* template_list_path;
+    float end00; float end01; float end02; float end03;
+    float end10; float end11; float end12; float end13;
+    float end20; float end21; float end22; float end23;
+    float end30; float end31; float end32; float end33;
 };
 
 Var2Py var2py_ = {1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0};
-Py2Cpp py2cpp_ = {nullptr};
+Py2Cpp py2cpp_ = {nullptr, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
 
 // extern Cpp declaration
 extern "C"
@@ -60,7 +65,7 @@ class StandardTrans
 {
   public:
     Eigen::Matrix4f trans_camera2end;
-    Eigen::Matrix4f trans_world2base;
+    Eigen::Matrix4f trans_base2world;
     Eigen::Matrix4f trans_hole2world;
     Eigen::Matrix4f trans_end2base;
 
@@ -69,33 +74,36 @@ class StandardTrans
     Eigen::Matrix4f trans_hole2camera;
 
   StandardTrans(){
-    trans_world2base << 1.0, 0.0, 0.0, -0.13133,
+    trans_base2world << 1.0, 0.0, 0.0, -0.13133,
                         0.0, 1.0, 0.0, -0.201645,
                         0.0, 0.0, 1.0, 0.013512,
                         0.0, 0.0, 0.0, 1.0;
     
-    trans_camera2end << 0.003372588585447311, 0.999993882232867, -0.0009279779481199456, -0.1139769854729428,
-                        -0.9999928642232963, 0.003371002717380445, -0.001705239914974192, 0.03146280771337295,
-                        -0.001702101266528705, 0.0009337223989492128, 0.9999981155051044, 0.07811252527739843,
+    trans_camera2end << 0.04999190841220458, 0.9987464691287659, -0.002509879704122885, -0.1233286407353617,
+                        -0.9986450328192172, 0.05002288314324066, 0.01434606522856827, 0.003561782838864993,
+                        0.01445363341206645, 0.001789291720513989, 0.9998939398337848, 0.0788226942731852,
                         0, 0, 0, 1;
                         
-    trans_end2base = Eigen::Matrix4f::Identity();
+    trans_end2base << -0.5884786248207092, -2.325823970750207e-06, 0.8085127472877502, 0.8309828639030457, 
+                      4.142234288906366e-08, 1.0, 2.9068187359371223e-06, -0.1501024067401886,
+                      -0.8085127472877502, 1.744091264299641e-06, -0.5884786248207092, 0.2322056144475937, 
+                      0.0, 0.0, 0.0, 1.0;
 
-    float hole_position_x = 0.619;
-    float hole_position_y = -0.254;
-    float hole_position_z = 0.1996;
-    float hole_orientation_x = -0.0;
-    float hole_orientation_y = -0.0;
-    float hole_orientation_z = -0.0;
+    float hole_position_x = 1.059;
+    float hole_position_y = -0.313;
+    float hole_position_z = 0.1134;
+    float hole_orientation_x = 0.0;
+    float hole_orientation_y = 0.0;
+    float hole_orientation_z = 0.0;
     float hole_orientation_w = 1.0;
-
+    
     trans_hole2world = Eigen::Matrix4f::Identity();
     Eigen::Quaternionf quat_hole2world(hole_orientation_w, hole_orientation_x, hole_orientation_y, hole_orientation_z);
     Eigen::Vector4f hole_pos_vec(hole_position_x, hole_position_y, hole_position_z, 1.0);
     trans_hole2world.block<3, 3>(0, 0) = quat_hole2world.matrix();
     trans_hole2world.block<4, 1>(0, 3) = hole_pos_vec;
 
-    trans_hole2base = trans_world2base * trans_hole2world;
+    trans_hole2base = trans_base2world.inverse() * trans_hole2world;
     trans_camera2base = trans_end2base * trans_camera2end;
     trans_hole2camera = trans_camera2base.inverse() * trans_hole2base;
   }
@@ -138,6 +146,7 @@ class FeatureCloud
       {
         xyz_ = PointCloud::Ptr(new PointCloud);
         pcl::io::loadPCDFile(pcd_file, *xyz_);
+        std::cout << xyz_->size() << std::endl;
         processInput();
       }
 

@@ -6,6 +6,9 @@ from PIL import Image
 import open3d as o3d
  
 from ultralytics import YOLO 
+
+from time import sleep
+import socket
  
 ''' 深度相机 '''
 pipeline = rs.pipeline()  # 定义流程pipeline，创建一个管道
@@ -13,10 +16,74 @@ config = rs.config()  # 定义配置config
  
 # config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)  # 配置depth流
 # config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)  # 配置color流
-rs.config.enable_device_from_file(config, "/home/zju/Documents/elu_435_in.bag")
+rs.config.enable_device_from_file(config, "/home/zju/Documents/20240920_170453.bag")
  
 pipe_profile = pipeline.start(config)  # streaming流开始
 align = rs.align(rs.stream.color)
+
+class Py2Cpp(ctypes.Structure):
+    _fields_ = [
+        ('template_list_path', ctypes.c_char_p),
+        ('end_0', ctypes.c_float),
+        ('end_1', ctypes.c_float),
+        ('end_2', ctypes.c_float),
+        ('end_3', ctypes.c_float),
+        ('end_4', ctypes.c_float),
+        ('end_5', ctypes.c_float),
+        ('end_6', ctypes.c_float),
+        ('end_7', ctypes.c_float),
+        ('end_8', ctypes.c_float),
+        ('end_9', ctypes.c_float),
+        ('end_10', ctypes.c_float),
+        ('end_11', ctypes.c_float),
+        ('end_12', ctypes.c_float),
+        ('end_13', ctypes.c_float),
+        ('end_14', ctypes.c_float),
+        ('end_15', ctypes.c_float),
+    ]
+
+class Var2Py(ctypes.Structure):
+    _fields_ = [
+        ('best_fitness_score', ctypes.c_float),
+
+        ('rotation_00', ctypes.c_float),
+        ('rotation_01', ctypes.c_float),
+        ('rotation_02', ctypes.c_float),
+        ('rotation_10', ctypes.c_float),
+        ('rotation_11', ctypes.c_float),
+        ('rotation_12', ctypes.c_float),
+        ('rotation_20', ctypes.c_float),
+        ('rotation_21', ctypes.c_float),
+        ('rotation_22', ctypes.c_float),
+
+        ('translation_x', ctypes.c_float),
+        ('translation_y', ctypes.c_float),
+        ('translation_z', ctypes.c_float)
+    ]
+
+pub_r00, pub_r01, pub_r02, pub_r10, pub_r11, pub_r12, pub_r20, pub_r21, pub_r22, pub_t1, pub_t2, pub_t0 \
+= 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+
+def udp_server():
+    udp_addr = ('192.168.5.17', 9999)
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    while(True):
+        udp_socket.sendto((str(pub_r00) + ' ' + str(pub_r01)+ ' ' + str(pub_r02)+ ' ' + str(pub_t0)+ ' ' + str(pub_r10)+ ' ' + str(pub_r11)+ ' ' + str(pub_r12)+ ' ' + str(pub_t1)+ ' ' + \
+                           str(pub_r20) + ' ' + str(pub_r21)+ ' ' + str(pub_r22)+ ' ' + str(pub_t2)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(1)) .encode('utf-8'), udp_addr)
+        print(str(pub_r00) + ' ' + str(pub_r01)+ ' ' + str(pub_r02)+ ' ' + str(pub_t0)+ ' ' + str(pub_r10)+ ' ' + str(pub_r11)+ ' ' + str(pub_r12)+ ' ' + str(pub_t1)+ ' ' + \
+              str(pub_r20) + ' ' + str(pub_r21)+ ' ' + str(pub_r22)+ ' ' + str(pub_t2)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(1) )
+        sleep(1)
+    udp_socket.close()
+
+def udp_client():
+    udp_addr = ('', 8888)
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket.bind(udp_addr)
+    while True:
+        recv_data = udp_socket.recvfrom(1024)
+        print("[From %s:%d]:%s" % (recv_data[1][0], recv_data[1][1], recv_data[0].decode("utf-8")))
+        return [float(x) for x in recv_data[0].split()]
+    
  
  
 def get_aligned_images(frame):
@@ -43,8 +110,8 @@ def save_pcd(intrinsics, units, depth_image, box):
     # 创建空的点云列表
     # points = []
     
-    pad_y = 20
-    pad_x = 20
+    pad_y = 50
+    pad_x = 50
 
     x_1 = box[0] - pad_x
     x_2 = box[2] + pad_x
@@ -76,38 +143,18 @@ def save_pcd(intrinsics, units, depth_image, box):
     print("Done! output.pcd")
 
 
-class Py2Cpp(ctypes.Structure):
-    _fields_ = [
-        ('template_list_path', ctypes.c_char_p),
-    ]
 
-class Var2Py(ctypes.Structure):
-    _fields_ = [
-        ('best_fitness_score', ctypes.c_float),
+    
 
-        ('rotation_00', ctypes.c_float),
-        ('rotation_01', ctypes.c_float),
-        ('rotation_02', ctypes.c_float),
-        ('rotation_10', ctypes.c_float),
-        ('rotation_11', ctypes.c_float),
-        ('rotation_12', ctypes.c_float),
-        ('rotation_20', ctypes.c_float),
-        ('rotation_21', ctypes.c_float),
-        ('rotation_22', ctypes.c_float),
 
-        ('translation_x', ctypes.c_float),
-        ('translation_y', ctypes.c_float),
-        ('translation_z', ctypes.c_float)
-    ]
- 
- 
 if __name__ == '__main__':
     # load weights
     model = YOLO("./weights/best.pt") 
 
     # load shared library from cpp
     so = ctypes.CDLL("/home/zju/Yolov8/build/libtemplate_alignment.so")
-    py2cpp = Py2Cpp(b"/home/zju/realsense_ws/template_pcd/template_list.txt")
+    py2cpp = Py2Cpp(b"/home/zju/realsense_ws/template_pcd/template_list.txt", \
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     so.set_py2cpp.argtypes = [ctypes.POINTER(Py2Cpp)]
     so.set_py2cpp(ctypes.byref(py2cpp))
  
@@ -147,7 +194,14 @@ if __name__ == '__main__':
                             [225, 255, 255], thickness=1, lineType=cv2.LINE_AA)  # 标出坐标
                 
             # if camera_xyz[-1] < 250:
-            if (charge_box[2] - charge_box[0]) > 90:
+            if (charge_box[2] - charge_box[0]) > 30:
+                end_list = udp_client()
+                py2cpp = Py2Cpp(b"/home/zju/realsense_ws/template_pcd/template_list.txt", \
+                                end_list[0], end_list[1], end_list[2], end_list[3], \
+                                end_list[4], end_list[5], end_list[6], end_list[7], \
+                                end_list[8], end_list[9], end_list[10], end_list[11], \
+                                end_list[12], end_list[13], end_list[14], end_list[15])
+                so.set_py2cpp(ctypes.byref(py2cpp))
                 save_pcd(depth_intrin, aligned_depth_frame.get_units(), img_depth, charge_box)
                 cv2.destroyAllWindows()
                 print("Aligning the target to template ...")
@@ -165,6 +219,23 @@ if __name__ == '__main__':
                 cv2.destroyAllWindows()
                 pipeline.stop()
                 break
+
+        so.get_var2py.restype = ctypes.POINTER(Var2Py)
+        var2py_ptr = so.get_var2py()
+        var2py = var2py_ptr.contents
+        pub_r00 = round(var2py.rotation_00, 4)
+        pub_r01 = round(var2py.rotation_01, 4)
+        pub_r02 = round(var2py.rotation_02, 4)
+        pub_r10 = round(var2py.rotation_10, 4)
+        pub_r11 = round(var2py.rotation_11, 4)
+        pub_r12 = round(var2py.rotation_12, 4)
+        pub_r20 = round(var2py.rotation_20, 4)
+        pub_r21 = round(var2py.rotation_21, 4)
+        pub_r22 = round(var2py.rotation_22, 4)
+        pub_t0 = round(var2py.translation_x, 4)
+        pub_t1 = round(var2py.translation_y, 4)
+        pub_t2 = round(var2py.translation_z, 4)
+        udp_server()
 
 
     finally:
