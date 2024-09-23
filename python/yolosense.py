@@ -29,17 +29,7 @@ class Py2Cpp(ctypes.Structure):
         ('end_2', ctypes.c_float),
         ('end_3', ctypes.c_float),
         ('end_4', ctypes.c_float),
-        ('end_5', ctypes.c_float),
-        ('end_6', ctypes.c_float),
-        ('end_7', ctypes.c_float),
-        ('end_8', ctypes.c_float),
-        ('end_9', ctypes.c_float),
-        ('end_10', ctypes.c_float),
-        ('end_11', ctypes.c_float),
-        ('end_12', ctypes.c_float),
-        ('end_13', ctypes.c_float),
-        ('end_14', ctypes.c_float),
-        ('end_15', ctypes.c_float),
+
     ]
 
 class Var2Py(ctypes.Structure):
