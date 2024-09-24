@@ -20,9 +20,9 @@ from utils import *
 pipeline = rs.pipeline()  # 定义流程pipeline，创建一个管道
 config = rs.config()  # 定义配置config
  
-# config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)  # 配置depth流
-# config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)  # 配置color流
-rs.config.enable_device_from_file(config, "/home/zju/Documents/20240920_170453.bag")
+config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)  # 配置depth流
+config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)  # 配置color流
+# rs.config.enable_device_from_file(config, "/home/zju/Documents/20240920_170453.bag")
  
 pipe_profile = pipeline.start(config)  # streaming流开始
 align = rs.align(rs.stream.color)
@@ -55,21 +55,33 @@ class Var2Py(ctypes.Structure):
 pub_list = [0, 0, 0, 0, 0, 0, 0, 0]
 rec_list = []
 state = -2
+recieved = 0
 
 def udp_server(s):
     global pub_list
-    while(state != pub_list[0]):
+    global state
+    global recieved
+    while True:
+        if state == pub_list[0] and recieved != 0:
+            sleep(0.5)
+            continue
+
+        if recieved == 0:
+            recieved = 1 if len(rec_list) != 0 else 0
+
         s.sendto((str(pub_list[0]) + ' ' + str(pub_list[1])+ ' ' + str(pub_list[2])+ ' ' + str(pub_list[3])+ ' ' + str(pub_list[4])+ ' ' + str(pub_list[5])+ ' ' + str(pub_list[6])+ ' ' + str(pub_list[7])) .encode('utf-8'), udp_addr_server)
         print("sending: ", str(pub_list[0]) + ' ' + str(pub_list[1])+ ' ' + str(pub_list[2])+ ' ' + str(pub_list[3])+ ' ' + str(pub_list[4])+ ' ' + str(pub_list[5])+ ' ' + str(pub_list[6])+ ' ' + str(pub_list[7]))
         state = pub_list[0]
-        # sleep(0.5)
+        sleep(1)
 
 def udp_client(s):
+    global recieved
     global rec_list
     while True:
         recv_data = s.recvfrom(1024)
         print("[From %s:%d]:%s" % (recv_data[1][0], recv_data[1][1], recv_data[0].decode("utf-8")))
         rec_list =  [float(x) for x in recv_data[0].split()]
+        sleep(1)
 
 def get_aligned_images(frame):
     aligned_frames = align.process(frame)  # 获取对齐帧，将深度框与颜色框对齐
@@ -161,7 +173,7 @@ if __name__ == '__main__':
             source = [img_color]
 
             # 调用YOLOv8中的推理，还是相当于把d435i中某一帧的图片进行detect推理
-            results = model.predict(source, save=False, show_conf=False)
+            results = model.predict(source, save=False, show_conf=False) # the "Speed" info is closed in the /ultralytics/engin/predictor.py
 
             boxes = results[0].boxes.data.numpy()
             index_array = np.argwhere(boxes[:,-1] == 0)
@@ -252,7 +264,7 @@ if __name__ == '__main__':
             
             # when the size of the hole in picture is large enough
             # if camera_xyz[-1] < 250:
-            if (charge_box[2] - charge_box[0]) > 30:
+            if (charge_box[2] - charge_box[0]) > 70:
                 # send message to robot, ask it to stop
                 pub_list[0] = -1
 
@@ -290,8 +302,11 @@ if __name__ == '__main__':
         so.get_var2py.restype = ctypes.POINTER(Var2Py)
         var2py_ptr = so.get_var2py()
         var2py = var2py_ptr.contents
+        
         pub_list = [2, round(var2py.px, 4), round(var2py.py, 4), round(var2py.pz, 4), \
                     round(var2py.qx, 4), round(var2py.qy, 4), round(var2py.qz, 4), round(var2py.qw, 4)]
+        print("\n\n\n", pub_list[0])
+        print("\n\n\n")
 
         # continue to send messages to robot
         while True:

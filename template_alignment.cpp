@@ -163,9 +163,9 @@ TemplateAlign(char* target_pcd_path)
   var2py_.qz = quat_result.z();
   var2py_.qw = quat_result.w();
 
-  float hole_position_x_val = 0.92908;
-  float hole_position_y_val = -0.31034;
-  float hole_position_z_val = 0.11495;
+  float hole_position_x_val = 0.93855;
+  float hole_position_y_val = -0.2965;
+  float hole_position_z_val = 0.1162;
   float hole_orientation_x_val = 0.0;
   float hole_orientation_y_val = 0.0;
   float hole_orientation_z_val = 0.0;
