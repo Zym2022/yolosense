@@ -25,31 +25,30 @@
 // put the variables needed by python into this struct
 struct Var2Py {
   float best_fitness_score;
-  float rotation_00;
-  float rotation_01;
-  float rotation_02;
-  float rotation_10;
-  float rotation_11;
-  float rotation_12;
-  float rotation_20;
-  float rotation_21;
-  float rotation_22;
 
-  float translation_x;
-  float translation_y;
-  float translation_z;
+  float px;
+  float py;
+  float pz;
+  float qx;
+  float qy;
+  float qz;
+  float qw;
 };
 
 struct Py2Cpp {
     char* template_list_path;
-    float end00; float end01; float end02; float end03;
-    float end10; float end11; float end12; float end13;
-    float end20; float end21; float end22; float end23;
-    float end30; float end31; float end32; float end33;
+
+    float px;
+    float py;
+    float pz;
+    float qx;
+    float qy;
+    float qz;
+    float qw;
 };
 
-Var2Py var2py_ = {1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0};
-Py2Cpp py2cpp_ = {nullptr, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+Var2Py var2py_ = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+Py2Cpp py2cpp_ = {nullptr, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
 
 // extern Cpp declaration
 extern "C"

@@ -109,11 +109,11 @@ TemplateAlign(char* target_pcd_path)
 
   ////////////////
   StandardTrans standardtrans_;
-  Eigen::Matrix4f trans_end2base;
-  trans_end2base << py2cpp_.end00, py2cpp_.end01, py2cpp_.end02, py2cpp_.end03, 
-                    py2cpp_.end10, py2cpp_.end11, py2cpp_.end12, py2cpp_.end13,
-                    py2cpp_.end20, py2cpp_.end21, py2cpp_.end22, py2cpp_.end23,
-                    py2cpp_.end30, py2cpp_.end31, py2cpp_.end32, py2cpp_.end33;
+  Eigen::Matrix4f trans_end2base = Eigen::Matrix4f::Identity();
+  Eigen::Quaternionf quat_end2base(py2cpp_.qw, py2cpp_.qx, py2cpp_.qy, py2cpp_.qz);
+  Eigen::Vector4f hole_pos_vec(py2cpp_.px, py2cpp_.py, py2cpp_.pz, 1.0);
+  trans_end2base.block<3, 3>(0, 0) = quat_end2base.matrix();
+  trans_end2base.block<4, 1>(0, 3) = hole_pos_vec;
   
   // trans_end2base << -0.4999368190765381, -1.5891189832473174e-05, 0.8660618662834167, 0.7147712707519531,
   //                   -1.0617844964144751e-05, 1.0, 1.221960974362446e-05, -0.1500995010137558,
@@ -154,18 +154,14 @@ TemplateAlign(char* target_pcd_path)
   printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
 
   var2py_.best_fitness_score = best_alignment.fitness_score;
-  var2py_.rotation_00 = rotation (0,0);
-  var2py_.rotation_01 = rotation (0,1);
-  var2py_.rotation_02 = rotation (0,2);
-  var2py_.rotation_10 = rotation (1,0);
-  var2py_.rotation_11 = rotation (1,1);
-  var2py_.rotation_12 = rotation (1,2);
-  var2py_.rotation_20 = rotation (2,0);
-  var2py_.rotation_21 = rotation (2,1);
-  var2py_.rotation_22 = rotation (2,2);
-  var2py_.translation_x = translation (0);
-  var2py_.translation_y = translation (1);
-  var2py_.translation_z = translation (2);
+  Eigen::Quaternionf quat_result(Result.block<3,3>(0, 0));
+  var2py_.px = Result.block<3,1>(0, 3)(0);
+  var2py_.py = Result.block<3,1>(0, 3)(1);
+  var2py_.pz = Result.block<3,1>(0, 3)(2);
+  var2py_.qx = quat_result.x();
+  var2py_.qy = quat_result.y();
+  var2py_.qz = quat_result.z();
+  var2py_.qw = quat_result.w();
 
   float hole_position_x_val = 0.92908;
   float hole_position_y_val = -0.31034;

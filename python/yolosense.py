@@ -9,6 +9,12 @@ from ultralytics import YOLO
 
 from time import sleep
 import socket
+import threading
+
+from scipy.optimize import least_squares
+from scipy.spatial.transform import Rotation
+
+from utils import *
  
 ''' 深度相机 '''
 pipeline = rs.pipeline()  # 定义流程pipeline，创建一个管道
@@ -24,58 +30,47 @@ align = rs.align(rs.stream.color)
 class Py2Cpp(ctypes.Structure):
     _fields_ = [
         ('template_list_path', ctypes.c_char_p),
-        ('end_0', ctypes.c_float),
-        ('end_1', ctypes.c_float),
-        ('end_2', ctypes.c_float),
-        ('end_3', ctypes.c_float),
-        ('end_4', ctypes.c_float),
-
+        ('px', ctypes.c_float),
+        ('py', ctypes.c_float),
+        ('pz', ctypes.c_float),
+        ('qx', ctypes.c_float),
+        ('qy', ctypes.c_float),
+        ('qz', ctypes.c_float),
+        ('qw', ctypes.c_float),
     ]
 
 class Var2Py(ctypes.Structure):
     _fields_ = [
         ('best_fitness_score', ctypes.c_float),
 
-        ('rotation_00', ctypes.c_float),
-        ('rotation_01', ctypes.c_float),
-        ('rotation_02', ctypes.c_float),
-        ('rotation_10', ctypes.c_float),
-        ('rotation_11', ctypes.c_float),
-        ('rotation_12', ctypes.c_float),
-        ('rotation_20', ctypes.c_float),
-        ('rotation_21', ctypes.c_float),
-        ('rotation_22', ctypes.c_float),
-
-        ('translation_x', ctypes.c_float),
-        ('translation_y', ctypes.c_float),
-        ('translation_z', ctypes.c_float)
+        ('px', ctypes.c_float),
+        ('py', ctypes.c_float),
+        ('pz', ctypes.c_float),
+        ('qx', ctypes.c_float),
+        ('qy', ctypes.c_float),
+        ('qz', ctypes.c_float),
+        ('qw', ctypes.c_float),
     ]
 
-pub_r00, pub_r01, pub_r02, pub_r10, pub_r11, pub_r12, pub_r20, pub_r21, pub_r22, pub_t1, pub_t2, pub_t0 \
-= 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+pub_list = [0, 0, 0, 0, 0, 0, 0, 0]
+rec_list = []
+state = -2
 
-def udp_server():
-    udp_addr = ('192.168.5.17', 9999)
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    while(True):
-        udp_socket.sendto((str(pub_r00) + ' ' + str(pub_r01)+ ' ' + str(pub_r02)+ ' ' + str(pub_t0)+ ' ' + str(pub_r10)+ ' ' + str(pub_r11)+ ' ' + str(pub_r12)+ ' ' + str(pub_t1)+ ' ' + \
-                           str(pub_r20) + ' ' + str(pub_r21)+ ' ' + str(pub_r22)+ ' ' + str(pub_t2)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(1)) .encode('utf-8'), udp_addr)
-        print(str(pub_r00) + ' ' + str(pub_r01)+ ' ' + str(pub_r02)+ ' ' + str(pub_t0)+ ' ' + str(pub_r10)+ ' ' + str(pub_r11)+ ' ' + str(pub_r12)+ ' ' + str(pub_t1)+ ' ' + \
-              str(pub_r20) + ' ' + str(pub_r21)+ ' ' + str(pub_r22)+ ' ' + str(pub_t2)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(0)+ ' ' + str(1) )
-        sleep(1)
-    udp_socket.close()
+def udp_server(s):
+    global pub_list
+    while(state != pub_list[0]):
+        s.sendto((str(pub_list[0]) + ' ' + str(pub_list[1])+ ' ' + str(pub_list[2])+ ' ' + str(pub_list[3])+ ' ' + str(pub_list[4])+ ' ' + str(pub_list[5])+ ' ' + str(pub_list[6])+ ' ' + str(pub_list[7])) .encode('utf-8'), udp_addr_server)
+        print("sending: ", str(pub_list[0]) + ' ' + str(pub_list[1])+ ' ' + str(pub_list[2])+ ' ' + str(pub_list[3])+ ' ' + str(pub_list[4])+ ' ' + str(pub_list[5])+ ' ' + str(pub_list[6])+ ' ' + str(pub_list[7]))
+        state = pub_list[0]
+        # sleep(0.5)
 
-def udp_client():
-    udp_addr = ('', 8888)
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_socket.bind(udp_addr)
+def udp_client(s):
+    global rec_list
     while True:
-        recv_data = udp_socket.recvfrom(1024)
+        recv_data = s.recvfrom(1024)
         print("[From %s:%d]:%s" % (recv_data[1][0], recv_data[1][1], recv_data[0].decode("utf-8")))
-        return [float(x) for x in recv_data[0].split()]
-    
- 
- 
+        rec_list =  [float(x) for x in recv_data[0].split()]
+
 def get_aligned_images(frame):
     aligned_frames = align.process(frame)  # 获取对齐帧，将深度框与颜色框对齐
  
@@ -95,46 +90,31 @@ def get_aligned_images(frame):
  
     return  depth_intrin, img_color, aligned_depth_frame, img_depth
 
-def save_pcd(intrinsics, units, depth_image, box):
-    print("saving to output.pcd ...")
-    # 创建空的点云列表
-    # points = []
-    
-    pad_y = 50
-    pad_x = 50
+def residuals(params, points):
+    a, b, c, d = params
+    x, y, z = points.T
+    return (a * x + b * y + c * z + d) / np.sqrt(a**2 + b**2 + c**2)
 
-    x_1 = box[0] - pad_x
-    x_2 = box[2] + pad_x
-    y_1 = box[1] - pad_y
-    y_2 = box[3] + pad_y
+def project_point_to_plane(point, plane_coeffs):
+                    """
+                    计算点到平面的投影点坐标。
 
-    # 遍历图像的每个像素
-    U = np.multiply(np.arange(x_1, x_2), np.ones((y_2 - y_1, 1))).astype(np.int16)
-    V = np.multiply(np.arange(y_1, y_2).reshape(-1, 1), np.ones((1, x_2 - x_1))).astype(np.int16)
+                    :param point: 三维点的坐标 (x0, y0, z0)
+                    :param plane_coeffs: 平面方程的系数 (a, b, c, d)
+                    :return: 投影点的坐标 (x, y, z)
+                    """
+                    x0, y0, z0 = point
+                    a, b, c, d = plane_coeffs
 
-    Z = depth_image[y_1:y_2, x_1:x_2] *units
-    X = (U - intrinsics.ppx) / intrinsics.fx * Z
-    Y = (V - intrinsics.ppy) / intrinsics.fy * Z
-    points = np.concatenate((X.reshape(-1, 1), Y.reshape(-1, 1), Z.reshape(-1, 1)), axis=1)
-    # for v in range(box[1] - pad_y, box[3] + pad_y):
-    #     for u in range(box[0] - pad_x, box[2] + pad_x):
-    #         z = depth_image[v, u] * units  # 深度值转换为米
-    #         if z > 0:  # 排除无效点
-    #             x = (u - intrinsics.ppx) / intrinsics.fx * z
-    #             y = (v - intrinsics.ppy) / intrinsics.fy * z
-    #             points.append([x, y, z])
+                    # 计算点到平面的距离
+                    numerator = a * x0 + b * y0 + c * z0 + d
+                    denominator = a**2 + b**2 + c**2
 
-    # 将点和颜色数据转换为Open3D点云格式
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-
-    # 保存点云为PCD文件
-    o3d.io.write_point_cloud("output.pcd", pcd)
-    print("Done! output.pcd")
-
-
-
-    
+                    # 计算投影点的坐标
+                    x = x0 - a * numerator / denominator
+                    y = y0 - b * numerator / denominator
+                    z = z0 - c * numerator / denominator
+                    return np.array([x, y, z])
 
 
 if __name__ == '__main__':
@@ -144,10 +124,35 @@ if __name__ == '__main__':
     # load shared library from cpp
     so = ctypes.CDLL("/home/zju/Yolov8/build/libtemplate_alignment.so")
     py2cpp = Py2Cpp(b"/home/zju/realsense_ws/template_pcd/template_list.txt", \
-                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     so.set_py2cpp.argtypes = [ctypes.POINTER(Py2Cpp)]
     so.set_py2cpp(ctypes.byref(py2cpp))
+
+    # udp
+    udp_addr_server = ('192.168.5.17', 9999)
+    udp_socket_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    udp_addr_client = ('', 8888)
+    udp_socket_client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket_client.bind(udp_addr_client)
+    
+    
+    thread_list = []
+    t1 = threading.Thread(target=udp_client, args=(udp_socket_client, ))
+    thread_list.append(t1)
+    t2 = threading.Thread(target=udp_server, args=(udp_socket_server, ))
+    thread_list.append(t2)
  
+    for t in thread_list:
+        t.setDaemon(True)
+        t.start()
+    
+    # the pose of the camera in end
+    trans_camera2end =np.array([[0.04999190841220458, 0.9987464691287659, -0.002509879704122885, -0.1233286407353617],
+                                [-0.9986450328192172, 0.05002288314324066, 0.01434606522856827, 0.003561782838864993],
+                                [0.01445363341206645, 0.001789291720513989, 0.9998939398337848, 0.0788226942731852],
+                                [0, 0, 0, 1]])
+    
     try:
         while True:
             frames = pipeline.wait_for_frames()  # 等待获取图像帧，获取颜色和深度的框架集
@@ -161,37 +166,108 @@ if __name__ == '__main__':
             boxes = results[0].boxes.data.numpy()
             index_array = np.argwhere(boxes[:,-1] == 0)
             if np.size(index_array) == 0:
+                pub_list = [0, 0, 0, 0, 0, 0, 0, 0]
                 continue
             index = index_array[0, 0]
-
             charge_box = boxes[index, 0:4].astype(dtype=np.int16)  # [x, y, x, y]
 
             # plot a BGR numpy array of predictions
             im_array = results[0].plot()  
 
             # 计算像素坐标系
-            ux, uy = int((charge_box[0] + charge_box[2]) / 2), int((charge_box[1] + charge_box[3]) / 2)
-            dis = aligned_depth_frame.get_distance(ux, uy)
-            
-            # 计算相机坐标系的xyz
-            camera_xyz = rs.rs2_deproject_pixel_to_point(depth_intrin, (ux, uy), dis) 
-            if camera_xyz[-1] > 0:
-                camera_xyz = np.round(np.array(camera_xyz), 3)  # 转成3位小数
-                camera_xyz = np.array(list(camera_xyz)) * 1000  # mm
+            corners = [[charge_box[0], charge_box[1]], [charge_box[0], charge_box[3]], \
+                       [charge_box[2], charge_box[1]], [charge_box[2], charge_box[3]], \
+                       [int((charge_box[0] + charge_box[2]) / 2), int((charge_box[1] + charge_box[3]) / 2)]]
+            camera_xyz = []
+            for ux, uy in corners:
+                dis = aligned_depth_frame.get_distance(ux, uy)
+                
+                # 计算相机坐标系的xyz
+                pc_xyz = rs.rs2_deproject_pixel_to_point(depth_intrin, (ux, uy), dis)
+                if pc_xyz[-1] > 0:
+                    camera_xyz.append(pc_xyz)
+
+            # plot the coordinate of the center
+            if pc_xyz[-1] > 0:
+                pc_xyz = np.round(np.array(pc_xyz), 3)  # 转成3位小数
+                pc_xyz = np.array(list(pc_xyz)) * 1000  # mm
 
                 cv2.circle(im_array, (ux, uy), 4, (255, 255, 255), 5)  # 标出中心点
-                cv2.putText(im_array, str(camera_xyz.tolist()), (ux + 20, uy + 10), 0, 0.5,
+                cv2.putText(im_array, str(pc_xyz.tolist()), (ux + 20, uy + 10), 0, 0.5,
                             [225, 255, 255], thickness=1, lineType=cv2.LINE_AA)  # 标出坐标
                 
+            # ax + by + cz + d = 0
+            if len(camera_xyz) > 2:
+                camera_xyz = np.array(camera_xyz)
+                init_guess = [1, 1, 1, 1]
+                result = least_squares(residuals, init_guess, args=(camera_xyz,))
+                a, b, c, d = result.x if result.x[2] > 0 else -result.x
+
+                # where is the origin
+                #####################
+                origin = np.mean(camera_xyz, axis=0).tolist()
+                origin = project_point_to_plane(origin, [a, b, c, d])
+
+                # what is axis
+                #####################
+                z = np.array([a,b,c]) / np.linalg.norm(np.array([a,b,c]))
+                down_middel = (camera_xyz[1, :] + camera_xyz[3, :]) / 2
+                proj_dm = project_point_to_plane(list(down_middel), [a, b, c, d])
+                y = (proj_dm - origin) / np.linalg.norm(proj_dm - origin)
+                
+                x = np.cross(z, y)
+
+                # the pose of the hole in camera
+                trans_hole2camera = np.identity(4)
+                trans_hole2camera[0, 0:3] = x
+                trans_hole2camera[1, 0:3] = y
+                trans_hole2camera[2, 0:3] = z
+                trans_hole2camera[0:3, 3] = origin
+
+                print("recieved: ", rec_list)
+                if len(rec_list) != 8:
+                    continue
+                # the pose of the end in base
+                p_end2base = np.array([rec_list[i] for i in range(1, 4)])
+                quat_end2base = np.array([rec_list[i] for i in range(4, 8)])
+                rot_end2base = Rotation.from_quat(quat_end2base).as_matrix()
+                trans_end2base = np.identity(4)
+                trans_end2base[0:3, 0:3] = rot_end2base
+                trans_end2base[0:3, 3] = p_end2base
+
+                # the pose of the hole in base
+                trans_hole2base = trans_end2base * trans_camera2end * trans_hole2camera
+
+                quat_hole2base = Rotation.from_matrix(trans_camera2end[0:3, 0:3]).as_quat()
+                
+                pub_list = [1, trans_hole2base[0,3], trans_hole2base[1,3], trans_hole2base[2,3],\
+                            quat_hole2base[0], quat_hole2base[1], quat_hole2base[2], quat_hole2base[3]]
+
+
+            else:
+                pub_list = [0, 0, 0, 0, 0, 0, 0, 0]
+                continue
+
+                
+            
+            # when the size of the hole in picture is large enough
             # if camera_xyz[-1] < 250:
             if (charge_box[2] - charge_box[0]) > 30:
-                end_list = udp_client()
+                # send message to robot, ask it to stop
+                pub_list[0] = -1
+
+                # check if the robot has stopped
+                if rec_list[0] != -1:
+                    cv2.waitKey(200)
+                    continue
+
+                # send end pose to cpp
                 py2cpp = Py2Cpp(b"/home/zju/realsense_ws/template_pcd/template_list.txt", \
-                                end_list[0], end_list[1], end_list[2], end_list[3], \
-                                end_list[4], end_list[5], end_list[6], end_list[7], \
-                                end_list[8], end_list[9], end_list[10], end_list[11], \
-                                end_list[12], end_list[13], end_list[14], end_list[15])
+                                rec_list[1], rec_list[2], rec_list[3], \
+                                rec_list[4], rec_list[5], rec_list[6], rec_list[7])
                 so.set_py2cpp(ctypes.byref(py2cpp))
+
+                # save point cloud from depth image as pcd file
                 save_pcd(depth_intrin, aligned_depth_frame.get_units(), img_depth, charge_box)
                 cv2.destroyAllWindows()
                 print("Aligning the target to template ...")
@@ -209,24 +285,17 @@ if __name__ == '__main__':
                 cv2.destroyAllWindows()
                 pipeline.stop()
                 break
-
+        
+        # get results from cpp
         so.get_var2py.restype = ctypes.POINTER(Var2Py)
         var2py_ptr = so.get_var2py()
         var2py = var2py_ptr.contents
-        pub_r00 = round(var2py.rotation_00, 4)
-        pub_r01 = round(var2py.rotation_01, 4)
-        pub_r02 = round(var2py.rotation_02, 4)
-        pub_r10 = round(var2py.rotation_10, 4)
-        pub_r11 = round(var2py.rotation_11, 4)
-        pub_r12 = round(var2py.rotation_12, 4)
-        pub_r20 = round(var2py.rotation_20, 4)
-        pub_r21 = round(var2py.rotation_21, 4)
-        pub_r22 = round(var2py.rotation_22, 4)
-        pub_t0 = round(var2py.translation_x, 4)
-        pub_t1 = round(var2py.translation_y, 4)
-        pub_t2 = round(var2py.translation_z, 4)
-        udp_server()
+        pub_list = [2, round(var2py.px, 4), round(var2py.py, 4), round(var2py.pz, 4), \
+                    round(var2py.qx, 4), round(var2py.qy, 4), round(var2py.qz, 4), round(var2py.qw, 4)]
 
+        # continue to send messages to robot
+        while True:
+            continue
 
     finally:
         # Stop streaming
